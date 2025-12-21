@@ -1,0 +1,11 @@
+streamlit
+chromadb
+sentence-transformers
+pymupdf
+python-dotenv
+openai
+numpy
+flashrank
+rank-bm25
+Pillow
+pdf2image
