@@ -1,3 +1,4 @@
+import json
 import chromadb
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -193,14 +194,22 @@ def rerank_results(query, results, top_n=5):
         score = result['score']  # FlashRank returns normalized scores (0-1)
         doc = documents[idx]
         
+        # Parse metadata and convert image_paths from JSON string to list
+        metadata = metadatas[idx] if idx < len(metadatas) else {}
+        if 'image_paths' in metadata and isinstance(metadata['image_paths'], str):
+            try:
+                metadata['image_paths'] = json.loads(metadata['image_paths'])
+            except (json.JSONDecodeError, TypeError):
+                metadata['image_paths'] = []
+        
         scored_docs.append({
             'document': doc,
             'text': doc,  # Alias for compatibility
             'score': float(score),  # FlashRank score (already normalized)
             'confidence': float(score),  # Use directly as confidence (0-1)
-            'metadata': metadatas[idx] if idx < len(metadatas) else {},
-            'source': metadatas[idx].get('source', 'Unknown') if idx < len(metadatas) else 'Unknown',
-            'chunk_id': metadatas[idx].get('chunk_id', 'Unknown') if idx < len(metadatas) else 'Unknown'
+            'metadata': metadata,
+            'source': metadata.get('source', 'Unknown'),
+            'chunk_id': metadata.get('chunk_id', 'Unknown')
         })
     
     # Already sorted by FlashRank, just take top_n

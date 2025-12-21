@@ -1,7 +1,6 @@
 import os
 import io
 import base64
-import json
 import fitz  # PyMuPDF
 import chromadb
 from sentence_transformers import SentenceTransformer
@@ -175,7 +174,7 @@ def analyze_image(base64_img):
     """
     try:
         response = groq_client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",  # Groq vision model
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
                 {
                     "role": "user",
@@ -235,6 +234,24 @@ def process_vision_task(task_data):
             'img_idx': img_idx,
             'description': "",
             'file_path': file_path,
+            'success': False
+        }
+
+
+def extract_text_from_pdf(pdf_path):        description = analyze_image(base64_img)
+        success = bool(description)
+        return {
+            'page': page_num,
+            'img_idx': img_idx,
+            'description': description,
+            'success': success
+        }
+    except Exception as e:
+        print(f"      ✗ Thread error processing page {page_num + 1}, image {img_idx + 1}: {e}")
+        return {
+            'page': page_num,
+            'img_idx': img_idx,
+            'description': "",
             'success': False
         }
 
@@ -384,6 +401,37 @@ def ingest_pdfs(uploaded_files):
                     pending_tasks.append(task)
             
             page_data.append(page_info)
+        # Open PDF with PyMuPDF (ONLY in main thread!)
+        doc = fitz.open(pdf_path)
+        
+        for page_num, page_text in pages_text:
+            page = doc[page_num]
+            
+            print(f"  Page {page_num + 1}: Extracting ({len(page_text.strip())} chars of text)")
+            
+            # Extract relevant images directly from PDF structure
+            valid_images = extract_images_from_page(doc, page)
+            
+            # Store page data (text + placeholder for images)
+            page_info = {
+                'page_num': page_num,
+                'text': page_text,
+                'images': [],  # Will be populated with descriptions later
+                'image_count': len(valid_images)
+            }
+            
+            # Queue vision tasks for parallel processing
+            if valid_images:
+                print(f"    → Queued {len(valid_images)} charts for parallel processing")
+                for img_idx, base64_img in enumerate(valid_images):
+                    task = {
+                        'page': page_num,
+                        'img_idx': img_idx,
+                        'base64_img': base64_img
+                    }
+                    pending_tasks.append(task)
+            
+            page_data.append(page_info)
         
         # Close PDF document (BEFORE threading!)
         doc.close()
@@ -404,38 +452,6 @@ def ingest_pdfs(uploaded_files):
                 future_to_task = {
                     executor.submit(process_vision_task, task): task 
                     for task in pending_tasks
-                }
-                
-                # Collect results as they complete
-                completed = 0
-                for future in as_completed(future_to_task):
-                    result = future.result()
-                    completed += 1
-                    
-                    # Store result indexed by (page, img_idx)
-                    key = (result['page'], result['img_idx'])
-                    vision_results[key] = result
-                    
-                    if result['success']:
-                        print(f"  [{completed}/{len(pending_tasks)}] ✓ Page {result['page'] + 1}, Chart {result['img_idx'] + 1}: {len(result['description'])} chars")
-                    else:
-                        print(f"  [{completed}/{len(pending_tasks)}] ✗ Page {result['page'] + 1}, Chart {result['img_idx'] + 1}: Failed")
-            
-            print(f"\n  ✓ Parallel processing complete: {sum(1 for r in vision_results.values() if r['success'])}/{len(pending_tasks)} successful")
-        else:
-            print(f"\n  → No images to process (text-only document)")
-            vision_results = {}
-        
-        # ============================================================
-        # PHASE 3: ASSEMBLY (Combine text + vision descriptions)
-        # ============================================================
-        print(f"\n{'='*60}")
-        print(f"PHASE 3: Assembling chunks with visual descriptions")
-        print(f"{'='*60}")
-        
-        all_chunks = []
-        all_metadatas = []
-        
         for page_info in page_data:
             page_num = page_info['page_num']
             page_text = page_info['text']
@@ -475,11 +491,42 @@ def ingest_pdfs(uploaded_files):
                     }
                     
                     # Add image paths to metadata for UI display
-                    # ChromaDB requires string/int/float/bool, so convert list to JSON string
                     if image_paths:
-                        metadata["image_paths"] = json.dumps(image_paths)
+                        metadata["image_paths"] = image_paths
                     
                     all_metadatas.append(metadata)
+                
+                status = f"with {len(visual_summaries)} visuals" if visual_summaries else "text-only"
+                print(f"  Page {page_num + 1}: {len(chunks)} chunks ({status})")
+            image_count = page_info['image_count']
+            
+            # Collect vision descriptions for this page
+            visual_summaries = []
+            if image_count > 0:
+                for img_idx in range(image_count):
+                    key = (page_num, img_idx)
+                    if key in vision_results and vision_results[key]['success']:
+                        description = vision_results[key]['description']
+                        visual_summaries.append(f"[Chart/Diagram {img_idx + 1}]: {description}")
+            
+            # Merge text + visual summaries
+            combined_content = page_text
+            if visual_summaries:
+                combined_content += "\n\n" + "\n\n".join(visual_summaries)
+            
+            # Chunk the combined content
+            if combined_content.strip():
+                chunks = sliding_window_chunker(combined_content, chunk_size=500, overlap=100)
+                for chunk_idx, chunk in enumerate(chunks):
+                    all_chunks.append(chunk)
+                    chunk_type = "text_with_visuals" if visual_summaries else "text"
+                    all_metadatas.append({
+                        "source": filename,
+                        "page": page_num + 1,
+                        "type": chunk_type,
+                        "chunk_id": f"page_{page_num + 1}_chunk_{chunk_idx}",
+                        "has_visuals": len(visual_summaries) > 0
+                    })
                 
                 status = f"with {len(visual_summaries)} visuals" if visual_summaries else "text-only"
                 print(f"  Page {page_num + 1}: {len(chunks)} chunks ({status})")

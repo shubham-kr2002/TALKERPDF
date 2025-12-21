@@ -9,8 +9,14 @@ venv/
 # OS files
 .DS_Store
 
+#Documents
+data/docs
+
 # ChromaDB data (if you prefer to not include DB files)
 /data/chroma_db/
+
+# Extracted images from PDFs
+app/static/images/
 
 # Environment files
 .env
