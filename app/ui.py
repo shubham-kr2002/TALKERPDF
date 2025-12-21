@@ -27,6 +27,45 @@ def parse_image_paths(metadata):
             return []
     return image_paths if isinstance(image_paths, list) else []
 
+# -----------------------------
+# Design / CSS
+# -----------------------------
+_CUSTOM_CSS = r"""
+:root{
+    --bg:#0f1724; /* deep navy */
+    --card:#111827; /* slightly lighter */
+    --muted:#9ca3af;
+    --accent:#06b6d4;
+    --accent-2:#3b82f6;
+    --radius:12px;
+}
+html, body, [class*="css"]  {
+    background: linear-gradient(180deg, rgba(17,24,39,0.75), rgba(7,10,25,0.85));
+    color: #e6eef8;
+}
+.talker-header{ display:flex; align-items:center; justify-content:center; gap:12px; padding:18px; border-radius:var(--radius); margin-bottom:18px}
+.brand-title{ font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; font-weight:700; font-size:20px}
+.brand-sub{ color:var(--muted); font-size:12px}
+.card{ background: rgba(255,255,255,0.03); padding:16px; border-radius:var(--radius); box-shadow: 0 6px 18px rgba(2,6,23,0.6); border: 1px solid rgba(255,255,255,0.03);}
+.upload-zone{ border:2px dashed rgba(255,255,255,0.06); padding:18px; text-align:center; border-radius:10px; transition: all .22s ease;}
+.upload-zone:hover{ transform: translateY(-3px); box-shadow:0 8px 20px rgba(2,6,23,0.6); border-color: rgba(59,130,246,0.6)}
+.btn-primary{ background: linear-gradient(90deg,var(--accent-2),var(--accent)); color:white; padding:8px 14px; border-radius:10px; border:none}
+.chat-area{ display:flex; flex-direction:column; gap:12px;}
+.bubble{ max-width:82%; padding:12px 16px; border-radius:18px; line-height:1.35; transition: transform .18s ease;}
+.bubble.user{ background: linear-gradient(90deg, rgba(59,130,246,0.12), rgba(6,182,212,0.08)); color: #dbeafe; margin-left:auto; border-bottom-right-radius:6px}
+.bubble.assistant{ background: rgba(255,255,255,0.02); color:#e6eef8; margin-right:auto; border-bottom-left-radius:6px}
+.meta{ color:var(--muted); font-size:12px; margin-top:6px}
+.small{ font-size:13px }
+.floating-brand{ text-align:center; padding:8px; opacity:0.9 }
+/* Accessibility focus */
+input:focus, textarea:focus, button:focus { outline: 3px solid rgba(6,182,212,0.18); outline-offset:2px }
+@media (max-width: 800px){ .bubble{ max-width:96% }}
+"""
+
+def inject_css():
+        st.markdown(f"<style>{_CUSTOM_CSS}</style>", unsafe_allow_html=True)
+
+inject_css()  # Call the function to inject CSS
 # Cache models to prevent reloading on every interaction
 @st.cache_resource
 def load_models():
@@ -71,8 +110,18 @@ st.set_page_config(
 )
 
 def main():
-    st.title("📄 TALKER PDF")
-    st.markdown("*RAG Application with OpenRouter & ChromaDB*")
+    # Elegant centered header with subtle accent
+    st.markdown(
+        """
+        <div class="talker-header card">
+            <div style="display:flex;flex-direction:column;align-items:center;">
+                <div class="brand-title">TALKER PDF</div>
+                <div class="brand-sub">RAG • OpenRouter • ChromaDB — Chat with PDFs</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     
     # Sidebar
     with st.sidebar:
@@ -132,40 +181,27 @@ def main():
     if "last_retrieval" not in st.session_state:
         st.session_state.last_retrieval = None
     
-    # Display chat messages
+    # Display chat messages (bubble style) inside a visual card
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            
-            # Show debug info if available
-            if message["role"] == "assistant" and "debug_info" in message:
-                with st.expander("🔍 Debug Retrieval & Sources"):
-                    debug_info = message["debug_info"]
-                    st.caption(f"Retrieved {len(debug_info)} chunks")
-                    for i, chunk_info in enumerate(debug_info[:3], 1):
-                        st.markdown(f"**Chunk {i}** (Score: {chunk_info['score']:.4f})")
-                        st.markdown(f"*Source: {chunk_info['metadata'].get('source', 'unknown')} - Page {chunk_info['metadata'].get('page', '?')}*")
-                        
-                        # Display images if available in metadata
-                        image_paths = parse_image_paths(chunk_info['metadata'])
-                        if image_paths:
-                            st.markdown("📊 **Charts/Diagrams from this page:**")
-                            for img_path in image_paths:
-                                if os.path.exists(img_path):
-                                    st.image(
-                                        img_path, 
-                                        caption=f"Source: {chunk_info['metadata'].get('source', 'unknown')} - Page {chunk_info['metadata'].get('page', '?')}",
-                                        use_container_width=True
-                                    )
-                        
-                        st.text_area(
-                            f"Content {i}",
-                            chunk_info['document'],
-                            height=100,
-                            key=f"debug_{message.get('timestamp', i)}_{i}",
-                            disabled=True
-                        )
-                        st.divider()
+        role = message.get("role", "user")
+        content = message.get("content", "")
+        meta = message.get("debug_info", None)
+        # Build bubble HTML
+        bubble_class = 'assistant' if role != 'user' else 'user'
+        avatar = '🤖' if role != 'user' else '👤'
+        html = f"""
+        <div class='chat-area'>
+          <div class='bubble {bubble_class}'>
+            <div style='display:flex;gap:10px;align-items:flex-start;'>
+              <div style='font-size:18px'>{avatar}</div>
+              <div class='small'>{content}</div>
+            </div>
+          </div>
+        </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     
     # Chat input
     if prompt := st.chat_input("Ask a question about your documents..."):
