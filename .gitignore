@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# OS files
+.DS_Store
+
+# ChromaDB data (if you prefer to not include DB files)
+/data/chroma_db/
+
+# Environment files
+.env
+
