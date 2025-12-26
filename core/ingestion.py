@@ -19,10 +19,19 @@ chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 # Initialize embedding model (small, free, runs locally)
 embedding_model = SentenceTransformer('all-mpnet-base-v2')
 
+# Get API key from Streamlit secrets or environment variable
+def get_api_key():
+    """Get API key from Streamlit secrets (cloud) or environment (local)."""
+    try:
+        import streamlit as st
+        return st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+    except (ImportError, FileNotFoundError):
+        return os.getenv("GROQ_API_KEY")
+
 # Initialize Groq client for vision tasks
 groq_client = OpenAI(
     base_url="https://api.groq.com/openai/v1",
-    api_key=os.getenv("GROQ_API_KEY"),
+    api_key=get_api_key(),
 )
 
 # Setup image storage directory

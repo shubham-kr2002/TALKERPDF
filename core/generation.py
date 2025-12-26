@@ -4,10 +4,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Get API key from Streamlit secrets or environment variable
+def get_api_key():
+    """Get API key from Streamlit secrets (cloud) or environment (local)."""
+    try:
+        import streamlit as st
+        return st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+    except (ImportError, FileNotFoundError):
+        return os.getenv("GROQ_API_KEY")
+
 # Point to Groq API
 client = OpenAI(
     base_url="https://api.groq.com/openai/v1",
-    api_key=os.getenv("GROQ_API_KEY"),
+    api_key=get_api_key(),
 )
 
 def contextualize_query(query, chat_history):
