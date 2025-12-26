@@ -17,11 +17,25 @@ def get_api_key():
     # Fall back to environment variable
     return os.getenv("GROQ_API_KEY")
 
-# Point to Groq API
-client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=get_api_key(),
-)
+# Lazy initialization of Groq client
+_client = None
+
+def get_client():
+    """Lazy initialization of Groq client to avoid import-time crashes."""
+    global _client
+    if _client is None:
+        api_key = get_api_key()
+        if not api_key:
+            raise ValueError(
+                "GROQ_API_KEY not found! Please set it in Streamlit secrets or .env file.\n"
+                "For Streamlit Cloud: Add GROQ_API_KEY in App Settings > Secrets\n"
+                "For local: Add GROQ_API_KEY=your_key to .env file"
+            )
+        _client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=api_key,
+        )
+    return _client
 
 def contextualize_query(query, chat_history):
     """
@@ -56,7 +70,7 @@ def contextualize_query(query, chat_history):
     """
 
     try:
-        response = client.chat.completions.create(
+        response = get_client().chat.completions.create(
             model="meta-llama/llama-3.1-8b-instruct:free",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -146,7 +160,7 @@ User Query:
 
     try:
         # Use Groq's Llama 4 Scout model
-        response = client.chat.completions.create(
+        response = get_client().chat.completions.create(
             model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
                 {"role": "system", "content": system_prompt},

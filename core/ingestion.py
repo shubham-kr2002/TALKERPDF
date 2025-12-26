@@ -32,11 +32,25 @@ def get_api_key():
     # Fall back to environment variable
     return os.getenv("GROQ_API_KEY")
 
-# Initialize Groq client for vision tasks
-groq_client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=get_api_key(),
-)
+# Lazy initialization of Groq client for vision tasks
+_groq_client = None
+
+def get_groq_client():
+    """Lazy initialization of Groq client to avoid import-time crashes."""
+    global _groq_client
+    if _groq_client is None:
+        api_key = get_api_key()
+        if not api_key:
+            raise ValueError(
+                "GROQ_API_KEY not found! Please set it in Streamlit secrets or .env file.\n"
+                "For Streamlit Cloud: Add GROQ_API_KEY in App Settings > Secrets\n"
+                "For local: Add GROQ_API_KEY=your_key to .env file"
+            )
+        _groq_client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=api_key,
+        )
+    return _groq_client
 
 # Setup image storage directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -187,7 +201,7 @@ def analyze_image(base64_img):
         Transcribed text/markdown from the image
     """
     try:
-        response = groq_client.chat.completions.create(
+        response = get_groq_client().chat.completions.create(
             model="meta-llama/llama-4-scout-17b-16e-instruct",  # Groq vision model
             messages=[
                 {
