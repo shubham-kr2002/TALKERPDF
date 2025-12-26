@@ -9,9 +9,13 @@ def get_api_key():
     """Get API key from Streamlit secrets (cloud) or environment (local)."""
     try:
         import streamlit as st
-        return st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
-    except (ImportError, FileNotFoundError):
-        return os.getenv("GROQ_API_KEY")
+        # Try to get from Streamlit secrets first
+        if hasattr(st, 'secrets') and "GROQ_API_KEY" in st.secrets:
+            return st.secrets["GROQ_API_KEY"]
+    except (ImportError, FileNotFoundError, AttributeError, RuntimeError):
+        pass
+    # Fall back to environment variable
+    return os.getenv("GROQ_API_KEY")
 
 # Point to Groq API
 client = OpenAI(
