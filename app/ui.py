@@ -116,7 +116,7 @@ def main():
         <div class="talker-header card">
             <div style="display:flex;flex-direction:column;align-items:center;">
                 <div class="brand-title">TALKER PDF</div>
-                <div class="brand-sub">RAG • OpenRouter • ChromaDB — Chat with PDFs</div>
+                <div class="brand-sub">RAG • Groq• ChromaDB — Chat with PDFs</div>
             </div>
         </div>
         """,
