@@ -3,18 +3,18 @@ import io
 import base64
 import json
 import fitz  # PyMuPDF
-import chromadb
 from sentence_transformers import SentenceTransformer
 from PIL import Image
 from openai import OpenAI
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config.settings import CHROMA_DB_PATH, DATA_DOCS_PATH
+from config.settings import DATA_DOCS_PATH
+from core.chroma_client import get_chroma_client, get_or_create_collection
 
 load_dotenv()
 
-# Initialize ChromaDB client
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+# Get shared ChromaDB client (handles Cloud vs Local automatically)
+chroma_client = get_chroma_client()
 
 # Initialize embedding model (small, free, runs locally)
 embedding_model = SentenceTransformer('all-mpnet-base-v2')
@@ -335,8 +335,8 @@ def ingest_pdfs(uploaded_files):
     Uses Two-Phase Architecture for parallel processing.
     Prevents duplicate ingestion of already processed documents.
     """
-    # Get or create collection
-    collection = chroma_client.get_or_create_collection(
+    # Get or create collection using shared client
+    collection = get_or_create_collection(
         name="rag_docs",
         metadata={"description": "RAG document chunks"}
     )

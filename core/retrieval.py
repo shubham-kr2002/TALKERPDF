@@ -1,13 +1,13 @@
 import json
-import chromadb
+import time
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from flashrank import Ranker, RerankRequest
 from rank_bm25 import BM25Okapi
-from config.settings import CHROMA_DB_PATH
+from core.chroma_client import get_chroma_client, get_collection
 
-# Initialize ChromaDB client
-chroma_client = chromadb.PersistentClient(path='data/chroma_db')
+# Get shared ChromaDB client (handles Cloud vs Local automatically)
+chroma_client = get_chroma_client()
 
 # Global model instances (can be cached by UI)
 _embedding_model = None
@@ -138,18 +138,32 @@ def search_documents(query, k=15):
         Dictionary with documents, metadatas, and distances
     """
     try:
-        # Get collection
-        collection = chroma_client.get_collection(name="rag_docs")
+        # Get collection using shared client
+        collection = get_collection(name="rag_docs")
+        if collection is None:
+            print("⚠️ Collection 'rag_docs' not found. Please upload documents first.")
+            return None
         
         # Convert query to embedding
         embedding_model = get_embedding_model()
         query_embedding = embedding_model.encode(query).tolist()
         
-        # Query ChromaDB for top k results
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k
-        )
+        # Query ChromaDB for top k results with retry logic
+        results = None
+        for attempt in range(3):
+            try:
+                results = collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=k
+                )
+                break
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "hnsw" in error_msg or "nothing found on disk" in error_msg:
+                    if attempt < 2:
+                        time.sleep(0.5 * (attempt + 1))
+                        continue
+                raise
         
         return results
     
@@ -221,7 +235,7 @@ def rerank_results(query, results, top_n=5):
     
     return top_results
 
-def hybrid_search(query, k=10):
+def hybrid_search(query, k=10, max_retries=3):
     """
     Hybrid search combining Vector Search (semantic) and BM25 (keyword) with RRF.
     Optimized to only send top 10 candidates to re-ranker for maximum speed.
@@ -229,6 +243,7 @@ def hybrid_search(query, k=10):
     Args:
         query: User's search query
         k: Number of candidates to retrieve from each method (default 10)
+        max_retries: Number of retries for transient errors (default 3)
     
     Returns:
         List of reranked results with normalized confidence scores
@@ -236,16 +251,43 @@ def hybrid_search(query, k=10):
     global bm25_index, bm25_corpus, bm25_ids, bm25_metadatas
     
     try:
-        collection = chroma_client.get_collection(name="rag_docs")
+        # Use shared collection getter with proper error handling
+        collection = get_collection(name="rag_docs")
+        if collection is None:
+            print("⚠️ Collection 'rag_docs' not found. Please upload documents first.")
+            return []
+        
         embedding_model = get_embedding_model()
         
         # 1. VECTOR SEARCH (Semantic) - Captures "Meaning"
         # ------------------------------------------------
         query_embedding = embedding_model.encode(query).tolist()
-        vector_results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k
-        )
+        
+        # Retry logic for transient HNSW errors (common in cloud environments)
+        vector_results = None
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                vector_results = collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=k
+                )
+                break  # Success, exit retry loop
+            except Exception as e:
+                last_error = e
+                error_msg = str(e).lower()
+                # Check if it's a transient HNSW/disk error
+                if "hnsw" in error_msg or "nothing found on disk" in error_msg:
+                    print(f"⚠️ Vector search attempt {attempt + 1}/{max_retries} failed: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                        continue
+                raise  # Re-raise non-transient errors immediately
+        
+        if vector_results is None:
+            print(f"⚠️ Vector search failed after {max_retries} attempts: {last_error}")
+            # Fall back to BM25-only search
+            vector_results = {'documents': [[]], 'ids': [[]], 'metadatas': [[]]}
         
         # Convert to list of document dicts
         vector_docs = []

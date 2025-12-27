@@ -77,10 +77,10 @@ def load_models():
 @st.cache_resource
 def initialize_search_engine():
     """Initialize BM25 keyword search index from existing ChromaDB data."""
-    import chromadb
-    client = chromadb.PersistentClient(path="data/chroma_db")
+    from core.chroma_client import get_chroma_client
     
     try:
+        client = get_chroma_client()
         collection = client.get_or_create_collection("rag_docs")
         existing_data = collection.get()  # Fetches everything
         
